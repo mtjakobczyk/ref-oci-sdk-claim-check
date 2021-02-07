@@ -12,6 +12,16 @@
       <artifactId>oci-java-sdk-core</artifactId>
       <version>1.31.0</version>
     </dependency>
+    <dependency>
+      <groupId>com.oracle.oci.sdk</groupId>
+      <artifactId>oci-java-sdk-objectstorage</artifactId>
+      <version>1.31.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.oracle.oci.sdk</groupId>
+      <artifactId>oci-java-sdk-streaming</artifactId>
+      <version>1.31.0</version>
+    </dependency>
   </dependencies>
   <properties>
     <maven.compiler.source>15</maven.compiler.source>
