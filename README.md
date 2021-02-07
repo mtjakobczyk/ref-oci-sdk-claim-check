@@ -15,4 +15,33 @@ Assuming your IDCS/IAM user is allowed to do so, you can create these resources 
 oci streaming admin stream create --name claim-checks --partitions 1 --compartment-id $COMPARTMENT_OCID
 oci os bucket create --name large-messages --compartment-id $COMPARTMENT_OCID
 ```
+### Starting consumers
+Let us start two consumers, each in separate terminal pane or window, using the same code base:
+```
+java -jar target/ClaimCheckClient-1.0-jar-with-dependencies.jar consumer receiver-1 $COMPARTMENT_OCID $STREAM_OCID
+```
+```
+java -jar target/ClaimCheckClient-1.0-jar-with-dependencies.jar consumer receiver-2 $COMPARTMENT_OCID $STREAM_OCID
+```
+The consumers will listen and process incoming messages.
 
+### Running a producer
+To demonstrate the Claim-Check pattern in action, we need to create a mock of a large file first. In our scenario, the file will have 10MB and will imitate a PDF. Such a file cannot be processed as OCI Streaming message, because it is larger than 1MB. The producer will upload the file to Object Storage bucket first and pass the corresponding path to consumers as a message over OCI Streaming.
+
+```bash
+# Create a mock of a 10MB PDF
+head -c $((10*1024*1024)) /dev/urandom > large.pdf
+# Run a producer
+java -jar target/ClaimCheckClient-1.0-jar-with-dependencies.jar producer sender-1 $COMPARTMENT_OCID $STREAM_OCID $BUCKET large.pdf
+```
+
+### Expected behaviour
+In each individual terminal window where you started both consumers, there should be an entry stating that a message was received and a file has been downloaded
+```
+receiver-1 received a message pointing to:
+receiver-1 downloaded a file from object storage bucket:
+```
+```
+receiver-2 received a message pointing to:
+receiver-2 downloaded a file from object storage bucket:
+```
