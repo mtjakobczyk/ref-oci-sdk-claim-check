@@ -15,13 +15,21 @@ Assuming your IDCS/IAM user is allowed to do so, you can create these resources 
 oci streaming admin stream create --name claim-checks --partitions 1 --compartment-id $COMPARTMENT_OCID
 oci os bucket create --name large-messages --compartment-id $COMPARTMENT_OCID
 ```
+Now set the variables needed by your consumers and producer. Please replace the values with these relevant for you.
+```
+COMPARTMENT_OCID=...
+STREAM_OCID=...
+STREAM_ENDPOINT=https://cell-1.streaming.eu-frankfurt-1.oci.oraclecloud.com
+BUCKET=large-messages
+```
+
 ### Starting consumers
 Let us start two consumers, each in separate terminal pane or window, using the same code base:
 ```
-java -jar claim-check-client-1.0-jar-with-dependencies.jar consumer receiver-1 $COMPARTMENT_OCID $STREAM_OCID
+java -jar claim-check-client-1.0-jar-with-dependencies.jar consumer receiver-1 $COMPARTMENT_OCID $STREAM_OCID $STREAM_ENDPOINT
 ```
 ```
-java -jar claim-check-client-1.0-jar-with-dependencies.jar consumer receiver-2 $COMPARTMENT_OCID $STREAM_OCID
+java -jar claim-check-client-1.0-jar-with-dependencies.jar consumer receiver-2 $COMPARTMENT_OCID $STREAM_OCID $STREAM_ENDPOINT
 ```
 The consumers will listen and process incoming messages.
 
@@ -32,16 +40,29 @@ To demonstrate the Claim-Check pattern in action, we need to create a mock of a 
 # Create a mock of a 10MB PDF
 head -c $((10*1024*1024)) /dev/urandom > large.pdf
 # Run a producer
-java -jar claim-check-client-1.0-jar-with-dependencies.jar producer sender-1 $COMPARTMENT_OCID $STREAM_OCID $BUCKET large.pdf
+java -jar claim-check-client-1.0-jar-with-dependencies.jar producer sender-1 $COMPARTMENT_OCID $STREAM_OCID $STREAM_ENDPOINT $BUCKET large.pdf
+```
+You should see something similar in the output:
+```
+producer sender-1: Your object storage namespace: yournamespace
+producer sender-1: Found file: large.pdf (10240kB)
+producer sender-1: Uploading the file as /n/yournamespace/b/large-messages/o/large.pdf
+producer sender-1: Successfully uploaded the file
 ```
 
 ### Expected behaviour
 In each individual terminal window where you started both consumers, there should be an entry stating that a message was received and a file has been downloaded
 ```
-receiver-1 received a message pointing to:
-receiver-1 downloaded a file from object storage bucket:
+consumer receiver-1: Received a message pointing to: /n/yournamespace/b/large-messages/o/large.pdf
+consumer receiver-1: Downloaded the file from object storage and saved it locally as: receiver-1-large.pdf
 ```
 ```
-receiver-2 received a message pointing to:
-receiver-2 downloaded a file from object storage bucket:
+consumer receiver-2: Received a message pointing to: /n/yournamespace/b/large-messages/o/large.pdf
+consumer receiver-2: Downloaded the file from object storage and saved it locally as: receiver-2-large.pdf
 ```
+Feel free to compare all three files:
+```
+diff large.pdf receiver-1-large.pdf
+diff large.pdf receiver-2-large.pdf
+```
+They should be identical.
