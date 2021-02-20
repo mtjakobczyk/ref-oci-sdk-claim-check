@@ -8,28 +8,35 @@ This is a minimalistic Java application used to demonstrate the use of OCI SDK f
 2. Consumers who subscribe to the stream will receive the message and use the contained path to download a copy of the object.
 
 ### Preparation
-This application interacts with Oracle Cloud Infrastructure Object Storage and Streaming services. It is assumed that you create a bucket and a [stream](https://docs.oracle.com/en-us/iaas/Content/Streaming/Tasks/managingstreams.htm#Managing_Streams) before executing the code.
+This application interacts with Oracle Cloud Infrastructure Object Storage and Streaming services. It is assumed that you create a bucket and a [stream](https://docs.oracle.com/en-us/iaas/Content/Streaming/Tasks/managingstreams.htm#Managing_Streams) before executing the Java code.
+
+Below, I have described how to create the resources using [OCI CLI](https://docs.oracle.com/en-us/iaas/tools/oci-cli/2.21.2/oci_cli_docs/).
+
+First, decide in which compartment are you going to create the cloud resources. Set an environment variable to the OCID of this compartment:
+
+```
+COMPARTMENT_OCID=...
+```
 
 Assuming your IDCS/IAM user is allowed to do so, you can create these resources using OCI CLI just like this:
 ```
-oci streaming admin stream create --name claim-checks --partitions 1 --compartment-id $COMPARTMENT_OCID
-oci os bucket create --name large-messages --compartment-id $COMPARTMENT_OCID
+STREAM_NAME=claim-checks
+BUCKET_NAME=large-messages
+STREAM_OCID=$(oci streaming admin stream create --name $STREAM_NAME --partitions 1 --compartment-id $COMPARTMENT_OCID --query="data.id" --raw-output)
+BUCKET_OCID=$(oci os bucket create --name $BUCKET_NAME --compartment-id $COMPARTMENT_OCID --query="data.id" --raw-output)
 ```
-Now set the variables needed by your consumers and producer. Please replace the values with these relevant for you.
+Now set additional variables needed by your consumers and producer.
 ```
-COMPARTMENT_OCID=...
-STREAM_OCID=...
-STREAM_ENDPOINT=https://cell-1.streaming.eu-frankfurt-1.oci.oraclecloud.com
-BUCKET=large-messages
+STREAM_ENDPOINT=$(oci streaming admin stream get --stream-id $STREAM_OCID --query="data.\"messages-endpoint\"" --raw-output)
 ```
 
 ### Starting consumers
 Let us start two consumers, each in separate terminal pane or window, using the same code base:
 ```
-java -jar claim-check-client-1.0-jar-with-dependencies.jar consumer receiver-1 $COMPARTMENT_OCID $STREAM_OCID $STREAM_ENDPOINT
+java -jar claim-check-client-1.0-jar-with-dependencies.jar -consumer -g c1 -n receiver-1 -c $COMPARTMENT_OCID -s $STREAM_OCID -e $STREAM_ENDPOINT
 ```
 ```
-java -jar claim-check-client-1.0-jar-with-dependencies.jar consumer receiver-2 $COMPARTMENT_OCID $STREAM_OCID $STREAM_ENDPOINT
+java -jar claim-check-client-1.0-jar-with-dependencies.jar -consumer -g c2  -n receiver-2 -c $COMPARTMENT_OCID -s $STREAM_OCID -e $STREAM_ENDPOINT
 ```
 The consumers will listen and process incoming messages.
 
@@ -38,9 +45,9 @@ To demonstrate the Claim-Check pattern in action, we need to create a mock of a 
 
 ```bash
 # Create a mock of a 10MB PDF
-head -c $((10*1024*1024)) /dev/urandom > large.pdf
+head -c $((10*1024*1024)) /dev/urandom > /tmp/large.pdf
 # Run a producer
-java -jar claim-check-client-1.0-jar-with-dependencies.jar producer sender-1 $COMPARTMENT_OCID $STREAM_OCID $STREAM_ENDPOINT $BUCKET large.pdf
+java -jar claim-check-client-1.0-jar-with-dependencies.jar -producer -n sender-1 -c $COMPARTMENT_OCID -s $STREAM_OCID -e $STREAM_ENDPOINT -b $BUCKET_NAME /tmp/large.pdf
 ```
 You should see something similar in the output:
 ```
