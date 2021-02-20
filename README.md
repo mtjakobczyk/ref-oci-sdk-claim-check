@@ -47,7 +47,7 @@ To demonstrate the Claim-Check pattern in action, we need to create a mock of a 
 # Create a mock of a 10MB PDF
 head -c $((10*1024*1024)) /dev/urandom > large.pdf
 # Run a producer
-java -jar claim-check-client-1.0-jar-with-dependencies.jar producer sender-1 $COMPARTMENT_OCID $STREAM_OCID $STREAM_ENDPOINT $BUCKET large.pdf
+java -jar claim-check-client-1.0-jar-with-dependencies.jar -t producer -n sender-1 -c $COMPARTMENT_OCID -s $STREAM_OCID -e $STREAM_ENDPOINT -b $BUCKET large.pdf
 ```
 You should see something similar in the output:
 ```
