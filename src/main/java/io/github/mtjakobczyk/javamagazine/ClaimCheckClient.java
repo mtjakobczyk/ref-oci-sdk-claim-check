@@ -10,17 +10,22 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
+
 import com.oracle.bmc.ConfigFileReader;
 import com.oracle.bmc.auth.ConfigFileAuthenticationDetailsProvider;
 import com.oracle.bmc.objectstorage.ObjectStorageClient;
 import com.oracle.bmc.objectstorage.requests.GetNamespaceRequest;
 import com.oracle.bmc.objectstorage.requests.PutObjectRequest;
+import com.oracle.bmc.objectstorage.requests.GetObjectRequest;
 import com.oracle.bmc.streaming.StreamClient;
 import com.oracle.bmc.streaming.requests.PutMessagesRequest;
 import com.oracle.bmc.streaming.model.PutMessagesDetails;
@@ -31,24 +36,23 @@ import com.oracle.bmc.streaming.model.CreateGroupCursorDetails;
 import com.oracle.bmc.streaming.requests.GetMessagesRequest;
 import com.oracle.bmc.streaming.model.Message;
 
-@Command(name = "ClaimCheckClient")
+@Command(name = "ClaimCheckClient",
+        description = "Sample application which demonstrates Claim-Check Integration Pattern")
 public class ClaimCheckClient implements Callable<Integer> {
 
     public final static String UTF16 = "UTF-8";
 
-    final Logger logger = LoggerFactory.getLogger("io.github.mtjakobczyk");
+    final Logger logger = LoggerFactory.getLogger(ClaimCheckClient.class);
 
     static class ProducerArgs {
-        @Option(names = "-producer", required = true ) boolean isProducerMode;
+        @Option(names = "-producer", required = true) boolean isProducerMode;
         @Option(names = { "-b", "--bucket-name" }, required = true) String bucketName;
-        @Parameters(index = "0") private String filePathStr;
     }
 
     static class ConsumerArgs {
         @Option(names = "-consumer", required = true ) boolean isConsumerMode;
         @Option(names = { "-g", "--consumer-group" }, required = false) String consumerGroup = "all";
         @Option(names = { "-p", "--polling-interval" }, required = false) Integer pollingIntervalSecs = 2;
-        @Parameters(index = "0") private String downloadedFilePathStr;
     }
 
     static class ClientModeArgs {
@@ -73,6 +77,9 @@ public class ClaimCheckClient implements Callable<Integer> {
     @Option(names = { "-e", "--stream-endpoint" }) 
     private String streamEndpoint;
 
+    @Parameters(index = "0") 
+    private String filePathStr;
+
     @Override
     public Integer call() throws IOException, InterruptedException {
         logger.info("Starting ClaimCheckClient");
@@ -87,19 +94,11 @@ public class ClaimCheckClient implements Callable<Integer> {
                                 .endpoint(streamEndpoint)
                                 .build(ociAuthProvider);
 
-        logger.info("Quering for Object Storage namespace"); 
-        // Get Object Storage Namespace
-        // https://docs.oracle.com/en-us/iaas/api/#/en/objectstorage/20160918/Namespace/GetNamespace
-        var getNamespaceRequest = GetNamespaceRequest.builder()
-                                    .compartmentId(compartmentId)
-                                    .build();
-        var getNamespaceResponse = osClient.getNamespace(getNamespaceRequest);
-        var osNamespace = getNamespaceResponse.getValue();
-        logger.info("Your object storage namespace: {}", osNamespace);
+        var osNamespace = getObjectStorageNamespace(osClient); // OCI API Call inside
 
+        // CONSUMER MODE
         if(clientModeArgs.consumerArgs != null && clientModeArgs.consumerArgs.isConsumerMode) {
             // Create Consumer Group Cursor
-            // cursor type LATEST to consume messages published after cursor creation
             // https://docs.oracle.com/en-us/iaas/api/#/en/streaming/20180418/Cursor/CreateGroupCursor
             var createGroupCursorDetails = CreateGroupCursorDetails.builder()
                                             .groupName(clientModeArgs.consumerArgs.consumerGroup)
@@ -130,7 +129,7 @@ public class ClaimCheckClient implements Callable<Integer> {
                 var getMessagesResponse = streamClient.getMessages(getMessagesRequest);
                 int getMessagesResponseCode = getMessagesResponse.get__httpStatusCode__();
                 if(getMessagesResponseCode != 200) {
-                    logger.error("GetMessages failed - HTTP {}", createGroupCursorResponseCode);
+                    logger.error("GetMessages failed - HTTP {}", getMessagesResponseCode);
                     return 1;
                 }
                 String nextCursor = getMessagesResponse.getOpcNextCursor();
@@ -139,15 +138,44 @@ public class ClaimCheckClient implements Callable<Integer> {
                     String osPathToObject = new String(msg.getValue(), UTF16);
                     logger.info("Successfully consumed message from the stream");
                     logger.info("Path to the object {}", osPathToObject);
+
+                    Pattern p = Pattern.compile("^/n/(.+)/b/(.+)/o/(.+)$");
+                    Matcher m = p.matcher(osPathToObject);
+                    m.find();
+                    String discoveredNamespace = m.group(1);
+                    String discoveredBucket = m.group(2);
+                    String discoveredObject = m.group(3);
+
+                    // Get the object
+                    // https://docs.oracle.com/en-us/iaas/api/#/en/objectstorage/20160918/Object/GetObject
+                    var getObjectRequest = GetObjectRequest.builder()
+                                            .namespaceName(discoveredNamespace)
+                                            .bucketName(discoveredBucket)
+                                            .objectName(discoveredObject)
+                                            .build();
+
+                    var getObjectResponse = osClient.getObject(getObjectRequest);
+                    var getObjectResponseCode = getObjectResponse.get__httpStatusCode__();
+                    if(getObjectResponseCode!=200) {
+                        logger.error("GetObject failed - HTTP {}", getObjectResponseCode);
+                        return 1;
+                    }
+
+                    var downloadedFilePath = Paths.get(filePathStr);
+                    var isExisting = Files.exists(downloadedFilePath);
+                    if(isExisting) {
+                        logger.warn("{} already exists and will be replaced", downloadedFilePath );
+                    }                
+                    Files.copy(getObjectResponse.getInputStream(), downloadedFilePath, StandardCopyOption.REPLACE_EXISTING);
+                    
                 }
                 cursor = nextCursor;
                 Thread.sleep(clientModeArgs.consumerArgs.pollingIntervalSecs*1000);
             } while(true);
-
-            
         }
+        // PRODUCER MODE
         if(clientModeArgs.producerArgs != null && clientModeArgs.producerArgs.isProducerMode) {
-            var filePath = Paths.get(clientModeArgs.producerArgs.filePathStr);
+            var filePath = Paths.get(filePathStr);
 
             // Check the file
             var isExisting = Files.exists(filePath);
@@ -156,9 +184,9 @@ public class ClaimCheckClient implements Callable<Integer> {
                 logger.error("{} is not a regular file", filePath );
                 return 1;
             }
-            logger.info("Found file: {} ({} kB)", clientModeArgs.producerArgs.filePathStr, Files.size(filePath)/1024 );
+            logger.info("Found file: {} ({} kB)", filePathStr, Files.size(filePath)/1024 );
 
-            FileInputStream input = new FileInputStream(clientModeArgs.producerArgs.filePathStr);
+            FileInputStream input = new FileInputStream(filePathStr);
             try(input) {
                 var objectName = filePath.getFileName().toString();
                 var osPathToObject = "/n/"+osNamespace+"/b/"+clientModeArgs.producerArgs.bucketName+"/o/"+objectName;
@@ -197,6 +225,24 @@ public class ClaimCheckClient implements Callable<Integer> {
             }
         }
         return 0;
+    }
+
+    private String getObjectStorageNamespace(ObjectStorageClient osClient) {
+        logger.info("Quering for Object Storage namespace"); 
+        // Get Object Storage Namespace
+        // https://docs.oracle.com/en-us/iaas/api/#/en/objectstorage/20160918/Namespace/GetNamespace
+        var getNamespaceRequest = GetNamespaceRequest.builder()
+                                    .compartmentId(compartmentId)
+                                    .build();
+        var getNamespaceResponse = osClient.getNamespace(getNamespaceRequest);
+        var getNamespaceResponseCode = getNamespaceResponse.get__httpStatusCode__();
+        if(getNamespaceResponseCode!=200) {
+            logger.error("GetNamespace failed - HTTP {}", getNamespaceResponseCode);
+            System.exit(1);
+        }
+        var osNamespace = getNamespaceResponse.getValue();
+        logger.info("Your object storage namespace: {}", osNamespace);
+        return osNamespace;
     }
 
     public static void main(String[] args) throws IOException {
