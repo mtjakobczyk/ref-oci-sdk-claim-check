@@ -33,12 +33,20 @@ STREAM_ENDPOINT=$(oci streaming admin stream get --stream-id $STREAM_OCID --quer
 ### Starting consumers
 Let us start two consumers, each in separate terminal pane or window, using the same code base:
 ```
-java -jar claim-check-client-1.0-jar-with-dependencies.jar -consumer -g c1 -n receiver-1 -c $COMPARTMENT_OCID -s $STREAM_OCID -e $STREAM_ENDPOINT
+java -jar claim-check-client-1.0-jar-with-dependencies.jar -consumer -g c1 -n receiver-1 -c $COMPARTMENT_OCID -s $STREAM_OCID -e $STREAM_ENDPOINT /tmp/receiver-1-large.pdf
 ```
 ```
-java -jar claim-check-client-1.0-jar-with-dependencies.jar -consumer -g c2  -n receiver-2 -c $COMPARTMENT_OCID -s $STREAM_OCID -e $STREAM_ENDPOINT
+java -jar claim-check-client-1.0-jar-with-dependencies.jar -consumer -g c2  -n receiver-2 -c $COMPARTMENT_OCID -s $STREAM_OCID -e $STREAM_ENDPOINT /tmp/receiver-2-large.pdf
 ```
-The consumers will listen and process incoming messages.
+The consumers will start polling the stream for new messages. You should see something similar in the output:
+```
+Starting ClaimCheckClient
+Using DEFAULT profile from the default OCI configuration file ($HOME/.oci/config)
+Preparing OCI API clients (for Object Storage and Streaming)
+Quering for Object Storage namespace
+Your object storage namespace: yournamespace
+ClaimCheckClient acting as consumer
+```
 
 ### Running a producer
 To demonstrate the Claim-Check pattern in action, we need to create a mock of a large file first. In our scenario, the file will have 10MB and will imitate a PDF. Such a file cannot be processed as OCI Streaming message, because it is larger than 1MB. The producer will upload the file to Object Storage bucket first and pass the corresponding path to consumers as a message over OCI Streaming.
@@ -51,25 +59,31 @@ java -jar claim-check-client-1.0-jar-with-dependencies.jar -producer -n sender-1
 ```
 You should see something similar in the output:
 ```
-producer sender-1: Your object storage namespace: yournamespace
-producer sender-1: Found file: large.pdf (10240kB)
-producer sender-1: Uploading the file as /n/yournamespace/b/large-messages/o/large.pdf
-producer sender-1: Successfully uploaded the file
+Starting ClaimCheckClient
+Using DEFAULT profile from the default OCI configuration file ($HOME/.oci/config)
+Preparing OCI API clients (for Object Storage and Streaming)
+Quering for Object Storage namespace
+Your object storage namespace: yournamespace
+ClaimCheckClient acting as producer
+Found file: /tmp/large.pdf (10240kB)
+Uploading the file as /n/yournamespace/b/large-messages/o/large.pdf
+Successfully uploaded the file
+Successfully published the message to the stream
 ```
 
 ### Expected behaviour
 In each individual terminal window where you started both consumers, there should be an entry stating that a message was received and a file has been downloaded
 ```
-consumer receiver-1: Received a message pointing to: /n/yournamespace/b/large-messages/o/large.pdf
-consumer receiver-1: Downloaded the file from object storage and saved it locally as: receiver-1-large.pdf
+Consumed message from the stream: /n/jakobczyk/b/large-messages/o/large.pdf
+Successfully saved file locally as /tmp/receiver-1-large.pdf
 ```
 ```
-consumer receiver-2: Received a message pointing to: /n/yournamespace/b/large-messages/o/large.pdf
-consumer receiver-2: Downloaded the file from object storage and saved it locally as: receiver-2-large.pdf
+Consumed message from the stream: /n/jakobczyk/b/large-messages/o/large.pdf
+Successfully saved file locally as /tmp/receiver-2-large.pdf
 ```
 Feel free to compare all three files:
 ```
-diff large.pdf receiver-1-large.pdf
-diff large.pdf receiver-2-large.pdf
+diff /tmp/large.pdf /tmp/receiver-1-large.pdf
+diff /tmp/large.pdf /tmp/receiver-2-large.pdf
 ```
 They should be identical.
