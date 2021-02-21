@@ -105,6 +105,7 @@ public class ClaimCheckClient implements Callable<Integer> {
 
         // CONSUMER MODE
         if (clientModeArgs.consumerArgs != null && clientModeArgs.consumerArgs.isConsumerMode) {
+            logger.info("ClaimCheckClient acting as consumer");
             String cursor = createConsumerGroupCursor(streamClient).getValue(); // OCI API Call
             do {
                 var getMessagesResponse = getMessages(streamClient, cursor); // OCI API Call
@@ -120,6 +121,7 @@ public class ClaimCheckClient implements Callable<Integer> {
             } while (true);
         }
         // PRODUCER MODE
+        logger.info("ClaimCheckClient acting as producer");
         if (clientModeArgs.producerArgs != null && clientModeArgs.producerArgs.isProducerMode) {
             var filePath = Paths.get(filePathStr);
             if (Files.exists(filePath) && Files.isRegularFile(filePath) && Files.isReadable(filePath)) {
@@ -227,6 +229,7 @@ public class ClaimCheckClient implements Callable<Integer> {
             logger.warn("{} already exists and will be replaced", downloadedFilePath );
         }                
         Files.copy(getObjectResponse.getInputStream(), downloadedFilePath, StandardCopyOption.REPLACE_EXISTING);
+        logger.info("Successfully saved file locally as {}", downloadedFilePath);
     }
 
     private Cursor createConsumerGroupCursor(StreamClient streamClient) {
